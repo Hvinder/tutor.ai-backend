@@ -26,8 +26,9 @@ export const fetchOpenaiTutorResponse = async ({
 }: {
   prompt: string;
   sessionId: string;
-}) => {
+}): Promise<{ details: string | null; studentUnderstood: boolean }> => {
   try {
+    // get existing context, if any
     const responseHistory = JSON.parse(
       (await redisClient.get(sessionId)) || "[]"
     );
@@ -46,19 +47,24 @@ export const fetchOpenaiTutorResponse = async ({
       ...openaiConfig,
     });
     const response = completion.choices[0].message.content;
-    if (response) {
-      // Use redis to store conversation context
-      const responseHistory = JSON.parse(
-        (await redisClient.get(sessionId)) || "[]"
+    if (!response) {
+      throw new Error(
+        "The tutor appears to have gone offline. Please try again later"
       );
-      responseHistory.push({ role: "user", content: prompt });
-      responseHistory.push({ role: "system", content: response });
-      await redisClient.set(sessionId, JSON.stringify(responseHistory));
     }
-    console.log("response", response);
-    return JSON.parse(response || "{}");
+    // update conversation context in redis
+    responseHistory.push({ role: "user", content: prompt });
+    responseHistory.push({ role: "system", content: response });
+    await redisClient.set(sessionId, JSON.stringify(responseHistory));
+    // TODO: remove from redis if student understood the word.. limited storage capacity :(
+    try {
+      return JSON.parse(response || "{}");
+    } catch (err) {
+      // Sometimes the API returns string output instead of the specified format. This check is to handle that
+      return { details: response, studentUnderstood: false };
+    }
   } catch (err: any) {
     console.error(err);
-    return {};
+    throw err;
   }
 };

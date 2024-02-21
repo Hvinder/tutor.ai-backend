@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const morgan_1 = __importDefault(require("morgan"));
 const db_1 = __importDefault(require("./config/db"));
 const routes_1 = require("./routes");
 dotenv_1.default.config();
@@ -16,6 +17,7 @@ app.use(express_1.default.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
     res.send("Express + TypeScript Server");
 });
+app.use((0, morgan_1.default)("[:date[iso]] :method :url :status :response-time ms"));
 app.use("/api", routes_1.router);
 app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);

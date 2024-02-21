@@ -10,7 +10,7 @@ const getWordOfTheDay = async (req: Request, res: Response) => {
   const random = Math.floor(Math.random() * 3);
   const data = await WordGameModel.findOne({}).limit(-1).skip(random).lean();
   const transformedData = {
-    ...data,
+    word: data?.word,
     questions: (data?.questions || []).map((q) => ({
       ...q,
       options: q.options.map((o) => ({ _id: o._id, value: o.value })),
@@ -22,22 +22,18 @@ const getWordOfTheDay = async (req: Request, res: Response) => {
 const chatWIthTutor = async (req: Request, res: Response) => {
   const { userInput } = req.body;
   const { sessionId } = req.params;
-  const openaiResponse = await fetchOpenaiTutorResponse({
-    prompt: userInput,
-    sessionId,
-  });
-  // Sometimes the API returns string output instead of the specified format. This check is to handle that
-  const messageFromTutor =
-    typeof openaiResponse === "object"
-      ? openaiResponse.details
-      : openaiResponse;
-  const studentUnderstood =
-    typeof openaiResponse === "object"
-      ? openaiResponse.studentUnderstood
-      : false;
-  res
-    .status(200)
-    .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
+  try {
+    const openaiResponse = await fetchOpenaiTutorResponse({
+      prompt: userInput,
+      sessionId,
+    });
+    const { details: messageFromTutor, studentUnderstood } = openaiResponse;
+    res
+      .status(200)
+      .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
+  } catch (err: any) {
+    res.status(500).send(buildErrorResponse(err?.message));
+  }
 };
 
 const checkAnswer = async (req: Request, res: Response) => {

@@ -4,6 +4,7 @@ const RESPONSE_STATUS = {
 };
 
 const buildErrorResponse = (message?: string) => {
+  console.error(message);
   return {
     status: RESPONSE_STATUS.ERROR,
     message: message || "Something went wrong",
