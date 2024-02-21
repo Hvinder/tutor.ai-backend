@@ -4,6 +4,7 @@ import {
   buildErrorResponse,
   buildSuccessResponse,
 } from "../utils/buildResponse";
+import { fetchOpenaiTutorResponse } from "../service/openai";
 
 const getWordOfTheDay = async (req: Request, res: Response) => {
   const random = Math.floor(Math.random() * 3);
@@ -16,6 +17,27 @@ const getWordOfTheDay = async (req: Request, res: Response) => {
     })),
   };
   res.status(200).send(buildSuccessResponse(transformedData));
+};
+
+const chatWIthTutor = async (req: Request, res: Response) => {
+  const { userInput } = req.body;
+  const { sessionId } = req.params;
+  const openaiResponse = await fetchOpenaiTutorResponse({
+    prompt: userInput,
+    sessionId,
+  });
+  // Sometimes the API returns string output instead of the specified format. This check is to handle that
+  const messageFromTutor =
+    typeof openaiResponse === "object"
+      ? openaiResponse.details
+      : openaiResponse;
+  const studentUnderstood =
+    typeof openaiResponse === "object"
+      ? openaiResponse.studentUnderstood
+      : false;
+  res
+    .status(200)
+    .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
 };
 
 const checkAnswer = async (req: Request, res: Response) => {
@@ -36,4 +58,4 @@ const checkAnswer = async (req: Request, res: Response) => {
   }
 };
 
-export { getWordOfTheDay, checkAnswer };
+export { getWordOfTheDay, chatWIthTutor, checkAnswer };

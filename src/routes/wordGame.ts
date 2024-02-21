@@ -1,7 +1,12 @@
 import express from "express";
-import { checkAnswer, getWordOfTheDay } from "../controller/wordGame";
+import {
+  chatWIthTutor,
+  checkAnswer,
+  getWordOfTheDay,
+} from "../controller/wordGame";
 
 export const wordGameRouter = express.Router();
 
 wordGameRouter.get("/", getWordOfTheDay);
+wordGameRouter.post("/chat/:sessionId", chatWIthTutor);
 wordGameRouter.post("/:wordId/:questionId", checkAnswer);
