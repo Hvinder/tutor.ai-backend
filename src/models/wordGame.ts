@@ -1,10 +1,12 @@
-import { Schema, model } from "mongoose";
+import { Schema, model, Types } from "mongoose";
 
 interface IOption {
+  _id: Types.ObjectId;
   value: string;
   isCorrect: boolean;
 }
 interface IQuestion {
+  _id: Types.ObjectId;
   question: string;
   options: IOption[];
 }

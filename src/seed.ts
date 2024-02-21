@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import dotenv from "dotenv";
 import connectDB from "./config/db";
 import WordGameModel, { IWordGame } from "./models/wordGame";
@@ -5,7 +6,7 @@ import WordGameModel, { IWordGame } from "./models/wordGame";
 const seed = async () => {
   dotenv.config();
   await connectDB();
-  const data: Array<Partial<IWordGame>> = [
+  const data = [
     {
       word: "Tedious",
       questions: [
@@ -451,7 +452,19 @@ const seed = async () => {
     },
   ];
 
-  await WordGameModel.create(data);
+  await WordGameModel.create(
+    data.map((d) => ({
+      ...d,
+      questions: d.questions?.map((q) => ({
+        ...q,
+        _id: new mongoose.Types.ObjectId(),
+        options: q.options.map((o) => ({
+          ...o,
+          _id: new mongoose.Types.ObjectId(),
+        })),
+      })),
+    }))
+  );
 };
 
 seed();
