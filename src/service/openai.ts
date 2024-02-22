@@ -53,7 +53,7 @@ export const fetchOpenaiTutorResponse = async ({
       );
     }
     // update conversation context in redis
-    responseHistory.push({ role: "user", content: prompt });
+    responseHistory.push({ role: "user", content: { details: prompt } });
     responseHistory.push({ role: "system", content: response });
     await redisClient.set(sessionId, JSON.stringify(responseHistory));
     // TODO: remove from redis if student understood the word.. limited storage capacity :(

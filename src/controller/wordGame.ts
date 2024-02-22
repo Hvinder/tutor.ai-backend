@@ -5,6 +5,7 @@ import {
   buildSuccessResponse,
 } from "../utils/buildResponse";
 import { fetchOpenaiTutorResponse } from "../service/openai";
+import redisClient from "../utils/redis";
 
 const getWordOfTheDay = async (req: Request, res: Response) => {
   const random = Math.floor(Math.random() * 3);
@@ -54,4 +55,24 @@ const checkAnswer = async (req: Request, res: Response) => {
   }
 };
 
-export { getWordOfTheDay, chatWIthTutor, checkAnswer };
+const fetchSessionHistory = async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  try {
+    const sessionHistory = JSON.parse(
+      (await redisClient.get(sessionId)) || "[]"
+    );
+    return res.status(200).send(
+      buildSuccessResponse({
+        sessionHistory: sessionHistory.map((s: any) => ({
+          ...s,
+          content:
+            typeof s.content === "object" ? s.content : JSON.parse(s.content),
+        })),
+      })
+    );
+  } catch (err: any) {
+    return res.status(500).send(buildErrorResponse(err?.message));
+  }
+};
+
+export { getWordOfTheDay, chatWIthTutor, checkAnswer, fetchSessionHistory };
