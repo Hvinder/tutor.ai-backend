@@ -28,7 +28,11 @@ const chatWIthTutor = async (req: Request, res: Response) => {
       prompt: userInput,
       sessionId,
     });
-    const { details: messageFromTutor, studentUnderstood } = openaiResponse;
+    let { details: messageFromTutor, studentUnderstood } = openaiResponse;
+    if (studentUnderstood && !messageFromTutor) {
+      messageFromTutor =
+        "Great! I'm glad to hear that you've understood the meaning. Feel free to ask more questions anytime!";
+    }
     res
       .status(200)
       .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
@@ -63,11 +67,7 @@ const fetchSessionHistory = async (req: Request, res: Response) => {
     );
     return res.status(200).send(
       buildSuccessResponse({
-        sessionHistory: sessionHistory.map((s: any) => ({
-          ...s,
-          content:
-            typeof s.content === "object" ? s.content : JSON.parse(s.content),
-        })),
+        sessionHistory,
       })
     );
   } catch (err: any) {

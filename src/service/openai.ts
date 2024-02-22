@@ -32,6 +32,7 @@ export const fetchOpenaiTutorResponse = async ({
     const responseHistory = JSON.parse(
       (await redisClient.get(sessionId)) || "[]"
     );
+    console.log(responseHistory);
     const completion = await openai.chat.completions.create({
       messages: [
         {
@@ -53,14 +54,17 @@ export const fetchOpenaiTutorResponse = async ({
       );
     }
     // update conversation context in redis
-    responseHistory.push({ role: "user", content: { details: prompt } });
-    responseHistory.push({ role: "system", content: response });
-    await redisClient.set(sessionId, JSON.stringify(responseHistory));
+    responseHistory.push({ role: "user", content: prompt });
     // TODO: remove from redis if student understood the word.. limited storage capacity :(
     try {
-      return JSON.parse(response || "{}");
+      const parsedResp = JSON.parse(response || "{}");
+      responseHistory.push({ role: "system", content: parsedResp.details });
+      await redisClient.set(sessionId, JSON.stringify(responseHistory));
+      return parsedResp;
     } catch (err) {
       // Sometimes the API returns string output instead of the specified format. This check is to handle that
+      responseHistory.push({ role: "system", content: response });
+      await redisClient.set(sessionId, JSON.stringify(responseHistory));
       return { details: response, studentUnderstood: false };
     }
   } catch (err: any) {
