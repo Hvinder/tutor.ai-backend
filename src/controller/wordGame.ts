@@ -4,20 +4,16 @@ import {
   buildErrorResponse,
   buildSuccessResponse,
 } from "../utils/buildResponse";
-import { fetchOpenaiTutorResponse } from "../service/openai";
+import {
+  checkUserAnswerFromOpenai,
+  fetchOpenaiTutorResponse,
+} from "../service/openai";
 import redisClient from "../utils/redis";
 
 const getWordOfTheDay = async (req: Request, res: Response) => {
   const random = Math.floor(Math.random() * 3);
   const data = await WordGameModel.findOne({}).limit(-1).skip(random).lean();
-  const transformedData = {
-    word: data?.word,
-    questions: (data?.questions || []).map((q) => ({
-      ...q,
-      options: q.options.map((o) => ({ _id: o._id, value: o.value })),
-    })),
-  };
-  res.status(200).send(buildSuccessResponse(transformedData));
+  res.status(200).send(buildSuccessResponse(data?.word));
 };
 
 const chatWIthTutor = async (req: Request, res: Response) => {
@@ -28,11 +24,7 @@ const chatWIthTutor = async (req: Request, res: Response) => {
       prompt: userInput,
       sessionId,
     });
-    let { details: messageFromTutor, studentUnderstood } = openaiResponse;
-    if (studentUnderstood && !messageFromTutor) {
-      messageFromTutor =
-        "Great! I'm glad to hear that you've understood the meaning. Feel free to ask more questions anytime!";
-    }
+    const { details: messageFromTutor, studentUnderstood } = openaiResponse;
     res
       .status(200)
       .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
@@ -42,18 +34,26 @@ const chatWIthTutor = async (req: Request, res: Response) => {
 };
 
 const checkAnswer = async (req: Request, res: Response) => {
-  const { optionResponse = "" } = req.body;
-  const { questionId, wordId } = req.params;
+  const { userInput = "", questionId, word } = req.body;
+  const { sessionId } = req.params;
   try {
-    const wordData = await WordGameModel.findOne({ _id: wordId }).lean();
+    const wordData = await WordGameModel.findOne({ word }).lean();
     const question = wordData?.questions.find(
       (q) => q._id.toString() === questionId
     );
-    // TODO: check option is correct
-    const isCorrect =
-      optionResponse.toLowerCase() ===
-      question?.options.find((o) => o.isCorrect)?.value.toLowerCase();
-    return res.status(200).send(buildSuccessResponse({ isCorrect }));
+    if (!question) {
+      throw new Error("Something went wrong");
+    }
+    const openaiResponse = await checkUserAnswerFromOpenai({
+      question: question?.question,
+      options: question?.options,
+      userInput,
+      sessionId,
+    });
+    const { message: messageFromTutor, isCorrect } = openaiResponse;
+    return res
+      .status(200)
+      .send(buildSuccessResponse({ messageFromTutor, isCorrect }));
   } catch (err: any) {
     return res.status(500).send(buildErrorResponse(err?.message));
   }
@@ -75,4 +75,31 @@ const fetchSessionHistory = async (req: Request, res: Response) => {
   }
 };
 
-export { getWordOfTheDay, chatWIthTutor, checkAnswer, fetchSessionHistory };
+const fetchQuestion = async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const { word, attempt } = req.query;
+  const wordData = await WordGameModel.findOne({ word }).lean();
+  const question = wordData?.questions?.[+attempt! - 1];
+
+  const questionContent = `${question?.question} <br/> ${question?.options?.map(
+    (o, i) => `${i + 1}. ${o.value}<br/>`
+  )}`;
+
+  const responseHistory = JSON.parse(
+    (await redisClient.get(sessionId)) || "[]"
+  );
+  responseHistory.push({ role: "system", content: questionContent });
+  await redisClient.set(sessionId, JSON.stringify(responseHistory));
+
+  return res
+    .status(200)
+    .send(buildSuccessResponse({ questionContent, questionId: question?._id }));
+};
+
+export {
+  getWordOfTheDay,
+  chatWIthTutor,
+  checkAnswer,
+  fetchSessionHistory,
+  fetchQuestion,
+};

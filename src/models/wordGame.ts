@@ -1,6 +1,6 @@
 import { Schema, model, Types } from "mongoose";
 
-interface IOption {
+export interface IOption {
   _id: Types.ObjectId;
   value: string;
   isCorrect: boolean;
