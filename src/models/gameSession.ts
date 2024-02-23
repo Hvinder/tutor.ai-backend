@@ -18,7 +18,7 @@ export interface IGameSession {
   studentUnderstood: boolean;
   isComplete: boolean;
   isLearnAgain: boolean;
-  // word: string;
+  word: string;
 }
 
 const gameSessionSchema = new Schema<IGameSession>(
@@ -40,7 +40,7 @@ const gameSessionSchema = new Schema<IGameSession>(
     studentUnderstood: { type: Boolean, default: false },
     isComplete: { type: Boolean, default: false },
     isLearnAgain: { type: Boolean, default: false },
-    // word: { type: String, required: true },
+    word: { type: String, required: true },
   },
   { timestamps: true }
 );

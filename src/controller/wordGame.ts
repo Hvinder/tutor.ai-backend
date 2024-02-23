@@ -2,10 +2,7 @@ import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 
 import WordGameModel from "../models/wordGame";
-import {
-  buildErrorResponse,
-  buildSuccessResponse,
-} from "../utils/buildResponse";
+import GameSessionModel, { Message } from "../models/gameSession";
 import {
   checkUserAnswerFromOpenai,
   fetchOpenaiTutorResponse,
@@ -16,21 +13,18 @@ import {
   markGameSessionComplete,
   markGameSessionRestart,
 } from "../service/GameSession";
-import GameSessionModel, { Message } from "../models/gameSession";
-
-const getWordOfTheDay = async (req: Request, res: Response) => {
-  const random = Math.floor(Math.random() * 3);
-  const data = await WordGameModel.findOne({}).limit(-1).skip(random).lean();
-  res.status(200).send(buildSuccessResponse(data?.word));
-};
+import {
+  buildErrorResponse,
+  buildSuccessResponse,
+} from "../utils/buildResponse";
 
 const chatWIthTutor = async (req: Request, res: Response) => {
-  const { userInput } = req.body;
-  const { sessionId, tempId } = req.params;
+  const { userInput, tempId } = req.body;
+  const { sessionId } = req.params;
   try {
     let gameSession = await getGameSession({ sessionId });
     if (!gameSession) {
-      gameSession = await GameSessionModel.create({ id: sessionId });
+      throw new Error("Invalid session id");
     }
 
     const { details, studentUnderstood } =
@@ -39,7 +33,11 @@ const chatWIthTutor = async (req: Request, res: Response) => {
         messageHistory: gameSession.messageHistory,
       })) || {};
     const newMessages: Message[] = [];
-    newMessages.push({ role: "user", content: userInput, _id: tempId });
+    newMessages.push({
+      role: "user",
+      content: userInput,
+      _id: tempId || uuidv4(),
+    });
     newMessages.push({ role: "system", content: details, _id: uuidv4() });
     if (studentUnderstood) {
       newMessages.push({
@@ -48,7 +46,6 @@ const chatWIthTutor = async (req: Request, res: Response) => {
         _id: uuidv4(),
       });
     }
-    console.log("newMessages", newMessages);
     gameSession = await updateGameSession({
       sessionId,
       messages: newMessages,
@@ -62,7 +59,7 @@ const chatWIthTutor = async (req: Request, res: Response) => {
 };
 
 const checkAnswer = async (req: Request, res: Response) => {
-  const { userInput = "", questionId, word } = req.body;
+  const { userInput = "", questionId, word, tempId } = req.body;
   const { sessionId } = req.params;
   try {
     const wordData = await WordGameModel.findOne({ word }).lean();
@@ -79,7 +76,11 @@ const checkAnswer = async (req: Request, res: Response) => {
         userInput,
       })) || {};
     const newMessages: Message[] = [];
-    newMessages.push({ role: "user", content: userInput, _id: uuidv4() });
+    newMessages.push({
+      role: "user",
+      content: userInput,
+      _id: tempId || uuidv4(),
+    });
     newMessages.push({ role: "system", content: message, _id: uuidv4() });
 
     let gameSession = await updateGameSession({
@@ -105,10 +106,22 @@ const checkAnswer = async (req: Request, res: Response) => {
   }
 };
 
-const fetchSessionHistory = async (req: Request, res: Response) => {
+const fetchSession = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   try {
-    const gameSession = await getGameSession({ sessionId });
+    let gameSession = await getGameSession({ sessionId });
+    if (!gameSession) {
+      // init new session
+      const random = Math.floor(Math.random() * 3);
+      const data = await WordGameModel.findOne({})
+        .limit(-1)
+        .skip(random)
+        .lean();
+      gameSession = await GameSessionModel.create({
+        id: sessionId,
+        word: data?.word,
+      });
+    }
 
     return res.status(200).send(buildSuccessResponse(gameSession));
   } catch (err: any) {
@@ -137,10 +150,4 @@ const fetchQuestion = async (req: Request, res: Response) => {
     .send(buildSuccessResponse({ gameSession, questionId: question?._id }));
 };
 
-export {
-  getWordOfTheDay,
-  chatWIthTutor,
-  checkAnswer,
-  fetchSessionHistory,
-  fetchQuestion,
-};
+export { chatWIthTutor, checkAnswer, fetchSession, fetchQuestion };
