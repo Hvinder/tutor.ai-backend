@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
-import WordGameModel, { IWordGame } from "../models/wordGame";
+import { v4 as uuidv4 } from "uuid";
+
+import WordGameModel from "../models/wordGame";
 import {
   buildErrorResponse,
   buildSuccessResponse,
@@ -8,7 +10,13 @@ import {
   checkUserAnswerFromOpenai,
   fetchOpenaiTutorResponse,
 } from "../service/openai";
-import redisClient from "../utils/redis";
+import {
+  updateGameSession,
+  getGameSession,
+  markGameSessionComplete,
+  markGameSessionRestart,
+} from "../service/GameSession";
+import GameSessionModel, { Message } from "../models/gameSession";
 
 const getWordOfTheDay = async (req: Request, res: Response) => {
   const random = Math.floor(Math.random() * 3);
@@ -18,16 +26,36 @@ const getWordOfTheDay = async (req: Request, res: Response) => {
 
 const chatWIthTutor = async (req: Request, res: Response) => {
   const { userInput } = req.body;
-  const { sessionId } = req.params;
+  const { sessionId, tempId } = req.params;
   try {
-    const openaiResponse = await fetchOpenaiTutorResponse({
-      prompt: userInput,
+    let gameSession = await getGameSession({ sessionId });
+    if (!gameSession) {
+      gameSession = await GameSessionModel.create({ id: sessionId });
+    }
+
+    const { details, studentUnderstood } =
+      (await fetchOpenaiTutorResponse({
+        prompt: userInput,
+        messageHistory: gameSession.messageHistory,
+      })) || {};
+    const newMessages: Message[] = [];
+    newMessages.push({ role: "user", content: userInput, _id: tempId });
+    newMessages.push({ role: "system", content: details, _id: uuidv4() });
+    if (studentUnderstood) {
+      newMessages.push({
+        role: "system",
+        content: "Now answer the following questions",
+        _id: uuidv4(),
+      });
+    }
+    console.log("newMessages", newMessages);
+    gameSession = await updateGameSession({
       sessionId,
+      messages: newMessages,
+      studentUnderstood: studentUnderstood,
     });
-    const { details: messageFromTutor, studentUnderstood } = openaiResponse;
-    res
-      .status(200)
-      .send(buildSuccessResponse({ messageFromTutor, studentUnderstood }));
+
+    res.status(200).send(buildSuccessResponse(gameSession));
   } catch (err: any) {
     res.status(500).send(buildErrorResponse(err?.message));
   }
@@ -44,16 +72,34 @@ const checkAnswer = async (req: Request, res: Response) => {
     if (!question) {
       throw new Error("Something went wrong");
     }
-    const openaiResponse = await checkUserAnswerFromOpenai({
-      question: question?.question,
-      options: question?.options,
-      userInput,
+    const { message, isCorrect } =
+      (await checkUserAnswerFromOpenai({
+        question: question?.question,
+        options: question?.options,
+        userInput,
+      })) || {};
+    const newMessages: Message[] = [];
+    newMessages.push({ role: "user", content: userInput, _id: uuidv4() });
+    newMessages.push({ role: "system", content: message, _id: uuidv4() });
+
+    let gameSession = await updateGameSession({
       sessionId,
+      messages: newMessages,
+      studentUnderstood: true,
+      incrementScore: isCorrect,
+      incrementAttempt: true,
     });
-    const { message: messageFromTutor, isCorrect } = openaiResponse;
-    return res
-      .status(200)
-      .send(buildSuccessResponse({ messageFromTutor, isCorrect }));
+    if (gameSession?.studentScore === 2) {
+      gameSession = await markGameSessionComplete({ sessionId });
+    }
+    if (
+      (gameSession?.questionsAttempt || 0) > 3 ||
+      (gameSession?.studentScore || 0) < 2
+    ) {
+      gameSession = await markGameSessionRestart({ sessionId });
+    }
+
+    return res.status(200).send(buildSuccessResponse(gameSession));
   } catch (err: any) {
     return res.status(500).send(buildErrorResponse(err?.message));
   }
@@ -62,14 +108,9 @@ const checkAnswer = async (req: Request, res: Response) => {
 const fetchSessionHistory = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   try {
-    const sessionHistory = JSON.parse(
-      (await redisClient.get(sessionId)) || "[]"
-    );
-    return res.status(200).send(
-      buildSuccessResponse({
-        sessionHistory,
-      })
-    );
+    const gameSession = await getGameSession({ sessionId });
+
+    return res.status(200).send(buildSuccessResponse(gameSession));
   } catch (err: any) {
     return res.status(500).send(buildErrorResponse(err?.message));
   }
@@ -81,19 +122,19 @@ const fetchQuestion = async (req: Request, res: Response) => {
   const wordData = await WordGameModel.findOne({ word }).lean();
   const question = wordData?.questions?.[+attempt! - 1];
 
-  const questionContent = `${question?.question} <br/> ${question?.options?.map(
-    (o, i) => `${i + 1}. ${o.value}<br/>`
-  )}`;
+  const questionContent = `${question?.question} <br/> ${question?.options
+    ?.map((o, i) => `${i + 1}. ${o.value}`)
+    .join("<br/>")}`;
 
-  const responseHistory = JSON.parse(
-    (await redisClient.get(sessionId)) || "[]"
-  );
-  responseHistory.push({ role: "system", content: questionContent });
-  await redisClient.set(sessionId, JSON.stringify(responseHistory));
+  const gameSession = await updateGameSession({
+    sessionId,
+    messages: [{ role: "system", content: questionContent, _id: uuidv4() }],
+    studentUnderstood: true,
+  });
 
   return res
     .status(200)
-    .send(buildSuccessResponse({ questionContent, questionId: question?._id }));
+    .send(buildSuccessResponse({ gameSession, questionId: question?._id }));
 };
 
 export {

@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import dotenv from "dotenv";
-import redisClient from "../utils/redis";
 import { IOption } from "../models/wordGame";
+import { Message } from "../models/gameSession";
 
 dotenv.config();
 
@@ -31,26 +31,25 @@ const generateCheckAnswerPrompt = (
     .join(
       ","
     )}. The students response is "${userInput}". evaluate the students response and return result ONLY as a parsable JSON in this format {message: string, isCorrect: boolean}. The message should be a remark from the teacher (you) to the student based on their answer.`;
+
 export const fetchOpenaiTutorResponse = async ({
   prompt,
-  sessionId,
+  messageHistory,
 }: {
   prompt: string;
-  sessionId: string;
-}): Promise<{ details: string | null; studentUnderstood: boolean }> => {
+  messageHistory: Message[];
+}): Promise<{
+  details: string;
+  studentUnderstood: boolean;
+}> => {
   try {
-    // get existing context, if any
-    const responseHistory = JSON.parse(
-      (await redisClient.get(sessionId)) || "[]"
-    );
-    console.log(responseHistory);
     const completion = await openai.chat.completions.create({
       messages: [
         {
           role: "system",
           content: WORD_OF_THE_DAY_TUTORING_PROMPT,
         },
-        ...responseHistory,
+        ...messageHistory.map((m) => ({ role: m.role, content: m.content })),
         {
           role: "user",
           content: prompt,
@@ -65,30 +64,12 @@ export const fetchOpenaiTutorResponse = async ({
         "The tutor appears to have gone offline. Please try again later"
       );
     }
-    // update conversation context in redis
-    responseHistory.push({ role: "user", content: prompt });
-    // TODO: remove from redis if student understood the word.. limited storage capacity :(
-    try {
-      const parsedResp = JSON.parse(response || "{}");
-      if (parsedResp.studentUnderstood && !parsedResp.details) {
-        parsedResp.details =
-          "Great! I'm glad to hear that you've understood the meaning. Feel free to ask more questions anytime!";
-      }
-      responseHistory.push({ role: "system", content: parsedResp.details });
-      if (parsedResp.studentUnderstood) {
-        responseHistory.push({
-          role: "system",
-          content: "Now answer the following questions",
-        });
-      }
-      await redisClient.set(sessionId, JSON.stringify(responseHistory));
-      return parsedResp;
-    } catch (err) {
-      // Sometimes the API returns string output instead of the specified format. This check is to handle that
-      responseHistory.push({ role: "system", content: response });
-      await redisClient.set(sessionId, JSON.stringify(responseHistory));
-      return { details: response, studentUnderstood: false };
+    const openaiResponse = JSON.parse(response || "{}");
+    if (openaiResponse.studentUnderstood && !openaiResponse.details) {
+      openaiResponse.details =
+        "Great! I'm glad to hear that you've understood the meaning. Feel free to ask more questions anytime!";
     }
+    return openaiResponse;
   } catch (err: any) {
     console.error(err);
     throw err;
@@ -99,13 +80,11 @@ export const checkUserAnswerFromOpenai = async ({
   question,
   options,
   userInput,
-  sessionId,
 }: {
   question: string;
   options: Array<Partial<IOption>>;
   userInput: string;
-  sessionId: string;
-}): Promise<{ message: string | null; isCorrect: boolean }> => {
+}): Promise<{ message: string; isCorrect: boolean }> => {
   try {
     const completion = await openai.chat.completions.create({
       messages: [
@@ -123,27 +102,13 @@ export const checkUserAnswerFromOpenai = async ({
         "The tutor appears to have gone offline. Please try again later"
       );
     }
-    // update conversation context in redis
-    const responseHistory = JSON.parse(
-      (await redisClient.get(sessionId)) || "[]"
-    );
-    responseHistory.push({ role: "user", content: userInput });
-    try {
-      const parsedResp = JSON.parse(response || "{}");
-      if (!parsedResp.message) {
-        parsedResp.message = parsedResp.isCorrect
-          ? "That's correct!"
-          : "Sorry, that's not quite right";
-      }
-      responseHistory.push({ role: "system", content: parsedResp.message });
-      await redisClient.set(sessionId, JSON.stringify(responseHistory));
-      return parsedResp;
-    } catch (err) {
-      // Sometimes the API returns string output instead of the specified format. This check is to handle that
-      responseHistory.push({ role: "system", content: response });
-      await redisClient.set(sessionId, JSON.stringify(responseHistory));
-      return { message: response, isCorrect: false };
+    const openaiResponse = JSON.parse(response || "{}");
+    if (!openaiResponse.message) {
+      openaiResponse.message = openaiResponse.isCorrect
+        ? "That's correct!"
+        : "Sorry, that's not quite right";
     }
+    return openaiResponse;
   } catch (err: any) {
     console.error(err);
     throw err;
