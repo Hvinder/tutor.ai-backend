@@ -93,7 +93,7 @@ const checkAnswer = async (req: Request, res: Response) => {
       gameSession = await markGameSessionComplete({ sessionId });
     }
     if (
-      (gameSession?.questionsAttempt || 0) > 3 ||
+      (gameSession?.questionsAttempt || 0) > 3 &&
       (gameSession?.studentScore || 0) < 2
     ) {
       gameSession = await markGameSessionRestart({ sessionId });
